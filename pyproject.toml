@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "poly-wan"
+version = "0.1.0"
+description = "Wan 2.1/2.2 video generation: text/image-to-video, VACE motion control, pose transfer, Wan-Animate, video-to-video and long videos in constant VRAM, with a web UI, HTTP API and CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4",
+    "torchvision",
+    # WanAnimatePipeline is newer than the last diffusers release at the time of writing.
+    "diffusers @ git+https://github.com/huggingface/diffusers",
+    "transformers>=4.51",
+    "accelerate",
+    "huggingface_hub",
+    "gguf",
+    "bitsandbytes",
+    "ftfy",
+    # Preprocessors: OpenPose, HED and line art (pulls in opencv); DWPose runs on onnxruntime.
+    "controlnet_aux",
+    "onnxruntime",
+    "pillow",
+    "numpy",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+wan-video = "wan_video.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["wan_video*"]
+
+[tool.setuptools.package-data]
+wan_video = ["web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wan Video Studio</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Wan Video Studio</div>
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <button class="icon-btn" id="new-tab" title="New workspace tab (Ctrl+Alt+T)" aria-label="New tab">+</button>
+    <div class="spacer"></div>
+    <button class="model-pill" id="model-pill" title="Manage models and FFmpeg">
+      <span class="dot" id="model-dot"></span><span id="model-status">No model loaded</span>
+    </button>
+  </header>
+
+  <main id="workspaces"></main>
+
+  <dialog id="models-dialog">
+    <form method="dialog" class="dialog-head">
+      <h2>Models</h2>
+      <button class="icon-btn" aria-label="Close">×</button>
+    </form>
+    <p class="hint">Each operation needs a model family: <b>VACE</b> does text, image, control, pose and editing; <b>T2V</b> and <b>I2V</b> are the dedicated text- and image-to-video models; <b>Animate</b> is Wan2.2-Animate. Variants download automatically the first time they are used. VACE 1.3B runs on 8&nbsp;GB GPUs; GGUF Q4 variants bring the 14B models to 12–16&nbsp;GB cards.</p>
+    <div id="models-list" class="models-list">Loading…</div>
+  </dialog>
+
+  <template id="workspace-template">
+    <section class="workspace" role="tabpanel">
+      <aside class="controls">
+        <div class="modes" role="radiogroup">
+          <button data-mode="generate" class="active">Text</button>
+          <button data-mode="image">Image</button>
+          <button data-mode="control">Control</button>
+          <button data-mode="pose">Pose</button>
+          <button data-mode="animate">Animate</button>
+          <button data-mode="v2v">Video→Video</button>
+          <button data-mode="export">Export</button>
+        </div>
+        <p class="mode-help" data-role="mode-help"></p>
+
+        <!-- media inputs -->
+        <div class="slots" data-show="image">
+          <div class="field">
+            <span>First frame</span>
+            <label class="slot" data-slot="image" data-kind="image">
+              <input type="file" accept="image/*" hidden>
+              <img alt="" hidden>
+              <span class="slot-empty">Drop or click: the image to animate</span>
+              <button type="button" class="slot-clear" hidden aria-label="Remove">×</button>
+            </label>
+          </div>
+          <div class="field">
+            <span>Last frame (optional)</span>
+            <label class="slot" data-slot="last" data-kind="image">
+              <input type="file" accept="image/*" hidden>
+              <img alt="" hidden>
+              <span class="slot-empty">Drop or click: where the video should end</span>
+              <button type="button" class="slot-clear" hidden aria-label="Remove">×</button>
+            </label>
+          </div>
+        </div>
+
+        <div class="slots" data-show="pose animate">
+          <div class="field">
+            <span data-role="char-label">Character</span>
+            <label class="slot" data-slot="character" data-kind="image">
+              <input type="file" accept="image/*" hidden>
+              <img alt="" hidden>
+              <span class="slot-empty">Drop or click: the character to move (full body works best)</span>
+              <button type="button" class="slot-clear" hidden aria-label="Remove">×</button>
+            </label>
+          </div>
+          <div class="field">
+            <span>Driving video</span>
+            <label class="slot video" data-slot="driving-pose" data-kind="video">
+              <input type="file" accept="video/*,image/gif" hidden>
+              <video muted loop playsinline hidden></video>
+              <span class="slot-empty">Drop or click: a video of the motion to copy</span>
+              <button type="button" class="slot-clear" hidden aria-label="Remove">×</button>
+            </label>
+          </div>
+        </div>
+
+        <div class="field" data-show="control" data-role="control-video-field">
+          <span>Driving video</span>
+          <label class="slot video" data-slot="driving" data-kind="video">
+            <input type="file" accept="video/*,image/gif" hidden>
+            <video muted loop playsinline hidden></video>
+            <span class="slot-empty">Drop or click: the video whose structure and motion to follow</span>
+            <button type="button" class="slot-clear" hidden aria-label="Remove">×</button>
+          </label>
+        </div>
+
+        <div class="field" data-show="v2v export">
+          <span data-role="source-label">Source video</span>
+          <label class="slot video" data-slot="source" data-kind="video">
+            <input type="file" accept="video/*,image/gif" hidden>
+            <video muted loop playsinline hidden></video>
+            <span class="slot-empty">Drop or click: the video to transform</span>
+            <button type="button" class="slot-clear" hidden aria-label="Remove">×</button>
+          </label>
+        </div>
+        <p class="hint" data-role="video-info"></p>
+
+        <label class="field" data-show="generate image control pose animate v2v">
+          <span data-role="prompt-label">Prompt</span>
+          <textarea data-role="prompt" rows="4" placeholder="Describe the video…"></textarea>
+        </label>
+
+        <!-- control -->
+        <div class="group" data-show="control">
+          <label class="field"><span>Control</span>
+            <select data-role="cn-type">
+              <option value="depth">Depth (shape and layout)</option>
+              <option value="pose">Pose (skeleton)</option>
+              <option value="canny">Canny edges</option>
+              <option value="lineart">Line art</option>
+              <option value="softedge">Soft edges (HED)</option>
+              <option value="scribble">Scribble</option>
+              <option value="gray">Grayscale (recolour)</option>
+              <option value="raw">Already a control video</option>
+              <option value="path">Motion paths (draw how objects move)</option>
+            </select>
+          </label>
+          <label class="check" data-role="cn-invert-row"><input type="checkbox" data-role="cn-invert"> Invert the control (black lines on white)</label>
+          <div class="field">
+            <span>Control strength: <output data-role="cn-strength-val">1.00</output></span>
+            <input type="range" min="0" max="2" step="0.05" value="1" data-role="cn-strength">
+          </div>
+          <div class="slots">
+            <div class="field">
+              <span>First frame (optional)</span>
+              <label class="slot small" data-slot="first" data-kind="image">
+                <input type="file" accept="image/*" hidden>
+                <img alt="" hidden>
+                <span class="slot-empty">Fix the opening frame</span>
+                <button type="button" class="slot-clear" hidden aria-label="Remove">×</button>
+              </label>
+            </div>
+            <div class="field">
+              <span>Last frame (optional)</span>
+              <label class="slot small" data-slot="cnlast" data-kind="image">
+                <input type="file" accept="image/*" hidden>
+                <img alt="" hidden>
+                <span class="slot-empty">Fix the closing frame</span>
+                <button type="button" class="slot-clear" hidden aria-label="Remove">×</button>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- pose / animate -->
+        <div class="group" data-show="control pose animate" data-role="pose-group">
+          <label class="field"><span>Pose detector</span>
+            <select data-role="detector">
+              <option value="dwpose">DWPose (whole body, more accurate)</option>
+              <option value="openpose">OpenPose</option>
+            </select>
+          </label>
+          <div class="field" data-show="pose animate">
+            <span>Smoothing: <output data-role="smooth-val">0.50</output></span>
+            <input type="range" min="0" max="0.95" step="0.05" value="0.5" data-role="smooth">
+          </div>
+          <label class="check" data-show="pose animate"><input type="checkbox" checked data-role="align"> Fit the skeleton to the character’s body</label>
+          <label class="check" data-show="pose"><input type="checkbox" checked data-role="hands"> Include hands</label>
+          <label class="check" data-show="pose"><input type="checkbox" checked data-role="face"> Include face</label>
+          <label class="check" data-show="pose"><input type="checkbox" data-role="pose-first"> Start exactly on the character image</label>
+          <div class="field" data-show="pose">
+            <span>Pose strength: <output data-role="pose-strength-val">1.00</output></span>
+            <input type="range" min="0" max="2" step="0.05" value="1" data-role="pose-strength">
+          </div>
+          <label class="field" data-show="animate"><span>Mode</span>
+            <select data-role="anim-mode">
+              <option value="animate">Animate: the character in its own scene</option>
+              <option value="replace">Replace: put the character into the video</option>
+            </select>
+          </label>
+        </div>
+
+        <!-- v2v -->
+        <div class="group" data-show="v2v">
+          <label class="field"><span>Method</span>
+            <select data-role="v2v-method">
+              <option value="restyle">Restyle: keep structure and motion, repaint the look (VACE)</option>
+              <option value="sdedit">Re-render: change by a strength (T2V)</option>
+              <option value="inpaint">Edit a region: regenerate only the selection (VACE)</option>
+            </select>
+          </label>
+          <label class="field" data-role="v2v-type-row"><span>Structure to keep</span>
+            <select data-role="v2v-type">
+              <option value="depth">Depth (shapes; best for big style changes)</option>
+              <option value="lineart">Line art (outlines and detail)</option>
+              <option value="softedge">Soft edges</option>
+              <option value="canny">Canny edges</option>
+              <option value="pose">Pose (people only)</option>
+              <option value="gray">Grayscale (recolour only)</option>
+            </select>
+          </label>
+          <div class="field" data-role="v2v-strength-row">
+            <span>Strength: <output data-role="v2v-strength-val">0.70</output></span>
+            <input type="range" min="0.05" max="1" step="0.05" value="0.7" data-role="v2v-strength">
+          </div>
+        </div>
+
+        <!-- export -->
+        <div class="group" data-show="export">
+          <div class="grid">
+            <label class="field"><span>Format</span>
+              <select data-role="ex-format"><option value="mp4">MP4 (H.264)</option><option value="webm">WebM (VP9)</option><option value="gif">GIF</option></select>
+            </label>
+            <label class="field"><span>Quality</span>
+              <select data-role="ex-quality"><option value="high">High</option><option value="medium">Medium</option><option value="small">Small file</option></select>
+            </label>
+            <label class="field"><span>Frame rate</span><input type="number" min="1" max="60" placeholder="source" data-role="ex-fps"></label>
+            <label class="field"><span>Width</span><input type="number" min="16" max="3840" placeholder="source" data-role="ex-width"></label>
+          </div>
+        </div>
+
+        <div class="field" data-show="generate image control pose v2v">
+          <span data-role="images-label">Reference images</span>
+          <div class="thumbs" data-role="thumbs"></div>
+          <label class="drop" data-role="multi-drop">
+            <input type="file" accept="image/*" multiple hidden data-role="multi-input">
+            Drop images or click to add
+          </label>
+        </div>
+
+        <details class="advanced" open data-show="generate image control pose animate v2v">
+          <summary>Settings</summary>
+          <div class="grid">
+            <label class="field wide"><span>Model variant</span><select data-role="variant"></select></label>
+            <label class="field"><span>Resolution</span>
+              <select data-role="resolution"><option value="480p">480p</option><option value="720p">720p</option></select>
+            </label>
+            <label class="field"><span>Aspect</span>
+              <select data-role="aspect">
+                <option value="auto">Auto</option><option value="16:9">16:9</option><option value="9:16">9:16</option>
+                <option value="1:1">1:1</option><option value="4:3">4:3</option><option value="3:4">3:4</option>
+              </select>
+            </label>
+            <label class="field"><span>Length (seconds)</span><input type="number" min="0.1" max="900" step="0.5" data-role="seconds" placeholder="5"></label>
+            <label class="field"><span>Frame rate</span><input type="number" min="1" max="60" data-role="fps" placeholder="auto"></label>
+            <label class="field"><span>Steps</span><input type="number" min="1" max="100" placeholder="30" data-role="steps"></label>
+            <label class="field"><span>Seed</span>
+              <span class="inline"><input type="number" placeholder="random" data-role="seed"><button type="button" class="icon-btn small" data-role="seed-reuse" title="Reuse last seed">↺</button></span>
+            </label>
+            <label class="field"><span>Guidance</span><input type="number" min="1" max="15" step="0.5" placeholder="auto" data-role="guidance"></label>
+            <label class="field"><span>Videos</span><input type="number" min="1" max="4" value="1" data-role="num-videos"></label>
+            <label class="field wide" data-show-cfg><span>Negative prompt</span><input type="text" data-role="negative" placeholder="Wan's default when empty"></label>
+            <label class="field wide"><span>Live preview while generating</span>
+              <select data-role="preview">
+                <option value="fast" selected>Fast (approximate, every step)</option>
+                <option value="full">Full quality (every 5 steps, slower)</option>
+                <option value="off">Off</option>
+              </select>
+            </label>
+          </div>
+        </details>
+
+        <details class="advanced" data-show="generate image control pose animate v2v">
+          <summary>Long videos (FramePack)</summary>
+          <p class="hint">Long videos are made in fixed-size sections that continue from the last frames, so VRAM use stays the same however long the video is. Each section is also anchored on the first frame or reference to stop drift.</p>
+          <div class="grid">
+            <label class="field wide"><span>Sectioned sampling</span>
+              <select data-role="framepack">
+                <option value="auto">Auto (when longer than one section)</option>
+                <option value="on">Always</option>
+                <option value="off">Off (one pass; short videos only)</option>
+              </select>
+            </label>
+            <label class="field"><span>Section frames</span><input type="number" min="17" max="161" step="4" value="81" data-role="section-frames"></label>
+            <label class="field"><span>Context frames</span><input type="number" min="1" max="21" value="5" data-role="context-frames"></label>
+            <label class="check wide"><input type="checkbox" checked data-role="anchor"> Anchor each section on the start (anti-drift)</label>
+          </div>
+        </details>
+        <p class="hint" data-role="plan-info"></p>
+
+        <div class="run-row">
+          <button class="primary" data-role="run">Generate</button>
+          <button class="ghost" data-role="cancel" hidden>Cancel</button>
+        </div>
+        <div class="progress" data-role="progress" hidden><div class="bar"></div></div>
+        <p class="status" data-role="status" aria-live="polite"></p>
+      </aside>
+
+      <div class="stage">
+        <div class="panel" data-role="path-panel" hidden>
+          <div class="toolbar">
+            <strong>Motion paths</strong>
+            <label class="inline small-label">Object size <input type="range" min="2" max="30" value="8" data-role="path-radius"></label>
+            <div class="spacer"></div>
+            <button data-role="path-undo" title="Undo (Ctrl+Z)">Undo</button>
+            <button data-role="path-clear">Clear</button>
+          </div>
+          <div class="canvas-wrap"><canvas data-role="path-canvas"></canvas></div>
+          <p class="hint">Drag to draw how one object moves; each stroke is one object, coloured as in the control video. Draw over the first frame (add one on the left) so the model knows what moves.</p>
+        </div>
+
+        <div class="panel" data-role="mask-panel" hidden>
+          <div class="toolbar">
+            <div class="seg">
+              <button data-tool="lasso" class="active" title="Lasso (L)">Lasso</button>
+              <button data-tool="box" title="Rectangle (R)">Box</button>
+              <button data-tool="brush" title="Brush (B)">Brush</button>
+              <button data-tool="erase" title="Eraser (E)">Erase</button>
+            </div>
+            <label class="inline small-label" data-role="brush-size-row">Size <input type="range" min="4" max="200" value="40" data-role="brush-size"></label>
+            <label class="inline small-label"><input type="checkbox" data-role="subtract"> Subtract</label>
+            <div class="spacer"></div>
+            <button data-role="mask-undo" title="Undo (Ctrl+Z)">Undo</button>
+            <button data-role="mask-clear">Clear selection</button>
+          </div>
+          <div class="canvas-wrap"><canvas data-role="mask-canvas"></canvas><p class="canvas-empty" data-role="mask-empty">Add a source video to draw on its first frame.</p></div>
+          <p class="hint">Select the region to regenerate on every frame (it follows the same place in the frame). The rest of the video is kept.</p>
+        </div>
+
+        <div class="panel" data-role="detect-panel" hidden>
+          <div class="toolbar">
+            <strong data-role="detect-title">Control video</strong>
+            <span class="small-label" data-role="detect-status"></span>
+            <div class="spacer"></div>
+            <button data-role="detect-run">Preview</button>
+          </div>
+          <div class="canvas-wrap video-wrap">
+            <video data-role="detect-video" muted loop playsinline controls hidden></video>
+            <p class="canvas-empty" data-role="detect-empty">Preview what the model will follow before generating.</p>
+          </div>
+        </div>
+
+        <div class="results-head">
+          <h3>Results</h3>
+          <button class="ghost small" data-role="clear-results">Clear</button>
+        </div>
+        <div class="results" data-role="results">
+          <p class="empty">Results appear here.</p>
+        </div>
+      </div>
+    </section>
+  </template>
+
+  <script src="/static/editors.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
