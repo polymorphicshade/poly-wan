@@ -25,6 +25,24 @@ pip install -e .[dev]
 
 `WanAnimatePipeline` is newer than the last diffusers release at the time of writing, so `pyproject.toml` installs diffusers from git.
 
+## Docker (Linux server)
+
+`docker-compose.yml` runs the app on an NVIDIA GPU behind [Caddy](https://caddyserver.com), which serves it over HTTPS with its own certificate. The host needs Docker, the NVIDIA driver (570 or newer) and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+
+```bash
+cp .env.example .env          # set DOMAIN, and optionally the variant and serve flags
+docker compose up -d --build
+docker compose logs -f app
+```
+
+- **Certificate:** if `DOMAIN` is a public name whose DNS points at the server, Caddy gets a Let's Encrypt certificate automatically and renews it. Ports 80 and 443 must be reachable for that. For `localhost`, an IP address or a LAN-only name, Caddy issues a certificate from its own local CA, and browsers warn until you trust that CA. To use a certificate you already have, put it in `deploy/certs/` and set `CADDY_TLS=tls /certs/fullchain.pem /certs/privkey.pem`.
+- **Only Caddy is exposed.** The app listens on port 7860 inside the compose network only.
+- **Password:** the app has no login of its own. Copy `deploy/conf.d/auth.caddy.example` to `deploy/conf.d/auth.caddy` and fill in a hash, which turns on HTTP basic auth in front of everything. The example file explains how to make the hash.
+- **Storage:** weights download on first use into the `models` volume. Generated videos go to the `outputs` volume. Certificates live in `caddy_data`; keep that volume, so certificates aren't re-issued.
+- **Settings:** `WAN_VIDEO_VARIANT` sets the default variant. `WAN_VIDEO_SERVE_ARGS` passes extra `wan-video serve` flags, for example `--preload --offload model`. `HF_TOKEN` speeds up downloads. FFmpeg is installed in the image, so it is never downloaded at runtime.
+
+The image runs on its own too: `docker build -t poly-wan .`, then `docker run --gpus all -p 7860:7860 -v wan-cache:/data/cache -v wan-outputs:/data/outputs poly-wan`.
+
 ## Model variants
 
 Wan is a family of checkpoints, and each one is trained for a different job. Each operation runs on one of these families:
