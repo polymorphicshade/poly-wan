@@ -7,8 +7,9 @@ build
 dist
 outputs
 tests
-deploy
+docker
+certs
 .env
 .env.*
 Dockerfile
-docker-compose.yml
+docker-compose*.yml

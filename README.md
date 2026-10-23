@@ -27,18 +27,30 @@ pip install -e .[dev]
 
 ## Docker (Linux server)
 
-`docker-compose.yml` runs the app on an NVIDIA GPU behind [Caddy](https://caddyserver.com), which serves it over HTTPS with its own certificate. The host needs Docker, the NVIDIA driver (570 or newer) and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+There are two compose files. Both run the app on an NVIDIA GPU. The host needs Docker, the NVIDIA driver (570 or newer) and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). On Ubuntu or Debian, `sudo ./NVIDIA.sh` installs all three and checks that a container can see the GPU.
+
+**Plain HTTP** (`docker-compose.yml`):
 
 ```bash
-cp .env.example .env          # set DOMAIN, and optionally the variant and serve flags
+cp .env.example .env          # optional: port, variant and serve flags
 docker compose up -d --build
 docker compose logs -f app
 ```
 
-- **Certificate:** if `DOMAIN` is a public name whose DNS points at the server, Caddy gets a Let's Encrypt certificate automatically and renews it. Ports 80 and 443 must be reachable for that. For `localhost`, an IP address or a LAN-only name, Caddy issues a certificate from its own local CA, and browsers warn until you trust that CA. To use a certificate you already have, put it in `deploy/certs/` and set `CADDY_TLS=tls /certs/fullchain.pem /certs/privkey.pem`.
-- **Only Caddy is exposed.** The app listens on port 7860 inside the compose network only.
-- **Password:** the app has no login of its own. Copy `deploy/conf.d/auth.caddy.example` to `deploy/conf.d/auth.caddy` and fill in a hash, which turns on HTTP basic auth in front of everything. The example file explains how to make the hash.
-- **Storage:** weights download on first use into the `models` volume. Generated videos go to the `outputs` volume. Certificates live in `caddy_data`; keep that volume, so certificates aren't re-issued.
+The UI is then at `http://<host>:7860`.
+
+**HTTPS** (`docker-compose.https.yml`) runs the same app plus an nginx sidecar that terminates TLS:
+
+```bash
+cp .env.https.example .env    # list the host's LAN address in TLS_SAN
+docker compose -f docker-compose.https.yml up -d --build
+```
+
+The UI is then at `https://<host>:8443`.
+
+- **Certificate:** a self-signed certificate is generated into `./certs` on first boot, so the browser warns once until you accept it. Every address you type in the browser must be in `TLS_SAN`, e.g. `IP:192.168.1.99`. After changing it, delete `./certs` and restart to mint a new one. To use a CA-issued certificate, put `fullchain.pem` and `privkey.pem` in `./certs`.
+- **Ports:** in the HTTPS stack, 7860 is the app's plain HTTP listener and is published on `127.0.0.1` only. `https://<host>:7860` fails with `SSL_ERROR_RX_RECORD_TOO_LONG` because nothing there speaks TLS. Change either port with `HTTPS_PORT` and `PORT` in `.env`.
+- **Storage:** weights download on first use into the `models` volume. Generated videos go to the `outputs` volume. Both stacks share these volumes.
 - **Settings:** `WAN_VIDEO_VARIANT` sets the default variant. `WAN_VIDEO_SERVE_ARGS` passes extra `wan-video serve` flags, for example `--preload --offload model`. `HF_TOKEN` speeds up downloads. FFmpeg is installed in the image, so it is never downloaded at runtime.
 
 The image runs on its own too: `docker build -t poly-wan .`, then `docker run --gpus all -p 7860:7860 -v wan-cache:/data/cache -v wan-outputs:/data/outputs poly-wan`.
